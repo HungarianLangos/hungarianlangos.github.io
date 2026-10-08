@@ -1,0 +1,1054 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <style>
+      [hidden] {
+        display: none !important;
+      }
+      img {
+        max-width: 100%;
+      }
+      body {
+        margin: 0;
+      }
+    </style>
+    <title>Microfluidic Flow Simulation</title>
+    <meta
+      name="description"
+      content="Interactive lattice Boltzmann microfluidic flow simulation."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&family=Schibsted+Grotesk:wght@600;700&display=swap"
+    />
+    <style>
+      /* Layout: full-bleed live lattice Boltzmann flow through a DLD post array with a simulation readout. */
+      :root {
+        --bg: #e9eef1;
+        --fg: #10202a;
+        --muted: #4d5d68;
+        --line: rgba(16, 32, 42, 0.14);
+        --card: rgba(248, 251, 252, 0.68);
+        --card-solid: #f7fafb;
+        --card-edge: rgba(255, 255, 255, 0.75);
+        --dye-a: #1f9d63; /* fluorescein: small particles, zigzag mode */
+        --dye-b: #cf3565; /* rhodamine: large particles, bump mode */
+        --post: #a9b8c2;
+        --accent: #0d7448;
+        --font-display:
+          "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
+        --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+        --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --bg: #0a1117;
+          --fg: #e6eef2;
+          --muted: #93a4ae;
+          --line: rgba(230, 238, 242, 0.14);
+          --card: rgba(12, 20, 27, 0.64);
+          --card-solid: #111b23;
+          --card-edge: rgba(255, 255, 255, 0.08);
+          --dye-a: #4fd88f;
+          --dye-b: #ff5f8f;
+          --post: #2a3944;
+          --accent: #5fe3a0;
+          color-scheme: dark;
+        }
+      }
+      :root[data-theme="dark"] {
+        --bg: #0a1117;
+        --fg: #e6eef2;
+        --muted: #93a4ae;
+        --line: rgba(230, 238, 242, 0.14);
+        --card: rgba(12, 20, 27, 0.64);
+        --card-solid: #111b23;
+        --card-edge: rgba(255, 255, 255, 0.08);
+        --dye-a: #4fd88f;
+        --dye-b: #ff5f8f;
+        --post: #2a3944;
+        --accent: #5fe3a0;
+        color-scheme: dark;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--font-body);
+        font-size: 15px;
+        line-height: 1.55;
+      }
+
+      canvas.sim {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #flow {
+        z-index: 0;
+      }
+      #trails {
+        z-index: 1;
+        pointer-events: none;
+      }
+      #parts {
+        z-index: 2;
+        touch-action: pan-y;
+        cursor: crosshair;
+      }
+
+      .wrap {
+        position: relative;
+        z-index: 3;
+        min-height: 100%;
+        box-sizing: border-box;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 20px;
+        padding-inline: 16px;
+        padding-block: 24px;
+        pointer-events: none;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .meta {
+        pointer-events: none;
+        margin: 0;
+        max-width: 360px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.7;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .meta b {
+        font-weight: 500;
+        color: var(--fg);
+      }
+      .key {
+        display: inline-block;
+        flex: none;
+        vertical-align: -1px;
+        margin-right: 4px;
+      }
+      .key.ring {
+        width: 8px;
+        height: 8px;
+        border: 1.5px solid var(--dye-b);
+        border-radius: 50%;
+        box-sizing: border-box;
+      }
+      .key.dot {
+        width: 5px;
+        height: 5px;
+        background: var(--dye-a);
+        border-radius: 50%;
+        vertical-align: 0;
+      }
+
+      /* spawn popup */
+      .pop {
+        position: fixed;
+        z-index: 5;
+        width: 248px;
+        max-width: calc(100vw - 32px);
+        box-sizing: border-box;
+        display: grid;
+        gap: 6px;
+        padding: 10px;
+        background: var(--card-solid);
+        color: var(--fg);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: 0 14px 40px -16px rgba(0, 0, 0, 0.45);
+      }
+      .pop-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 2px 4px 4px;
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .pop-x {
+        font: 500 16px/1 var(--font-body);
+        color: var(--muted);
+        background: none;
+        border: 0;
+        padding: 2px 6px;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .pop-x:hover {
+        color: var(--fg);
+      }
+      .opt {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        text-align: left;
+        font: inherit;
+        color: var(--fg);
+        background: none;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 9px 10px;
+        cursor: pointer;
+        transition:
+          border-color 0.15s,
+          background-color 0.15s;
+      }
+      .opt[data-size="big"]:hover {
+        border-color: var(--dye-b);
+      }
+      .opt[data-size="small"]:hover {
+        border-color: var(--dye-a);
+      }
+      .opt b {
+        display: block;
+        font-weight: 500;
+        font-size: 14px;
+      }
+      .opt small {
+        display: block;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .opt .key {
+        margin: 0;
+      }
+      .opt .key.ring {
+        width: 16px;
+        height: 16px;
+        border-width: 2px;
+      }
+      .opt .key.dot {
+        width: 7px;
+        height: 7px;
+        margin-inline: 4.5px;
+      }
+
+      @media (min-width: 720px) {
+        .wrap {
+          padding-inline: 44px;
+          padding-block: 40px;
+        }
+        .meta {
+          text-align: right;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="flow" class="sim" aria-hidden="true"></canvas>
+    <canvas id="trails" class="sim" aria-hidden="true"></canvas>
+    <canvas id="parts" class="sim" aria-hidden="true"></canvas>
+
+    <main class="wrap">
+      <p class="meta" id="meta">
+        <b>Background: live simulation</b><br />
+        D2Q9 lattice Boltzmann, DLD post array<br />
+        <span id="params">τ = 0.60 · Re ≈ 19 · ε = 0.10</span><br />
+        <span class="key ring"></span>d = 5 lu &gt; D<sub>c</sub>: bump mode<br />
+        <span class="key dot"></span>d = 1.2 lu &lt; D<sub>c</sub>: zigzag
+        mode<br />
+        Click to add a particle · drag to stir
+      </p>
+    </main>
+
+    <div class="pop" id="pop" role="dialog" aria-label="Add a particle" hidden>
+      <div class="pop-head">
+        <span id="pop-pos">Add particle</span
+        ><button class="pop-x" id="pop-x" type="button" aria-label="Close">
+          ×
+        </button>
+      </div>
+      <button class="opt" id="opt-big" type="button" data-size="big">
+        <span class="key ring"></span>
+        <span
+          ><b>Large particle</b
+          ><small>d = 5 lu &gt; D<sub>c</sub> · bump mode</small></span
+        >
+      </button>
+      <button class="opt" id="opt-small" type="button" data-size="small">
+        <span class="key dot"></span>
+        <span
+          ><b>Small particle</b
+          ><small>d = 1.2 lu &lt; D<sub>c</sub> · zigzag mode</small></span
+        >
+      </button>
+    </div>
+
+    <script>
+      (() => {
+        // ---------- lattice Boltzmann (D2Q9, BGK) ----------
+        const EX = [0, 1, 0, -1, 0, 1, -1, -1, 1];
+        const EY = [0, 0, 1, 0, -1, 1, 1, -1, -1];
+        const W9 = [
+          4 / 9,
+          1 / 9,
+          1 / 9,
+          1 / 9,
+          1 / 9,
+          1 / 36,
+          1 / 36,
+          1 / 36,
+          1 / 36,
+        ];
+        const OPP = [0, 3, 4, 1, 2, 7, 8, 5, 6];
+
+        const TAU = 0.6,
+          OMEGA = 1 / TAU;
+        const U0 = 0.08; // inlet velocity (lattice units)
+        const LAM = 16; // post pitch
+        const R = 4; // post radius
+        const EPS = 0.1; // row-shift fraction
+        const DELTA = EPS * LAM; // row shift per column
+        const NL = Math.round(1 / EPS); // flow lanes per gap = array period
+        const X0 = 22; // first post column
+        const GAP = LAM - 2 * R;
+        const NU = (TAU - 0.5) / 3;
+        const RE = (U0 * GAP) / NU;
+        const DC = 1.4 * GAP * Math.pow(EPS, 0.48); // Davis correlation
+        const A_BIG = 2.5,
+          A_SMALL = 0.6; // particle radii (lu)
+        document.getElementById("params").textContent =
+          `τ = ${TAU.toFixed(2)} · Re ≈ ${Math.round(RE)} · ε = ${EPS.toFixed(2)} · Dc ≈ ${DC.toFixed(1)} lu`;
+
+        const flow = document.getElementById("flow");
+        const trails = document.getElementById("trails");
+        const parts = document.getElementById("parts");
+        const fctx = flow.getContext("2d");
+        const tctx = trails.getContext("2d");
+        const pctx = parts.getContext("2d");
+        const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+        let NX, NY, N, f, g, ux, uy, solid, img, posts, COLS, sx, sy, dpr;
+        let particles = [],
+          userParticles = [];
+        let colors;
+        let pending = null; // lattice point awaiting a spawn choice
+        const fl = new Float64Array(9);
+
+        function hexToRgb(s) {
+          s = s.trim().replace("#", "");
+          if (s.length === 3)
+            s = s
+              .split("")
+              .map((c) => c + c)
+              .join("");
+          const v = parseInt(s, 16);
+          return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+        }
+        function readColors() {
+          const cs = getComputedStyle(document.documentElement);
+          const get = (n) => cs.getPropertyValue(n).trim();
+          colors = {
+            bg: hexToRgb(get("--bg")),
+            a: hexToRgb(get("--dye-a")),
+            b: hexToRgb(get("--dye-b")),
+            post: get("--post"),
+            dyeA: get("--dye-a"),
+            dyeB: get("--dye-b"),
+            fg: get("--fg"),
+          };
+        }
+        const rgba = (rgb, a) => `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a})`;
+
+        function feqAll(rho, vx, vy, out, base, stride) {
+          const u2 = 1.5 * (vx * vx + vy * vy);
+          for (let k = 0; k < 9; k++) {
+            const cu = 3 * (EX[k] * vx + EY[k] * vy);
+            out[k * stride + base] =
+              W9[k] * rho * (1 + cu + 0.5 * cu * cu - u2);
+          }
+        }
+
+        function wrapY(y) {
+          y %= NY;
+          return y < 0 ? y + NY : y;
+        }
+        const colX = (c) => X0 + c * LAM;
+
+        function init() {
+          const w = innerWidth,
+            h = innerHeight;
+          NX = Math.max(140, Math.min(300, Math.round(w / 5)));
+          NY = Math.max(LAM * 4, Math.round((NX * h) / w / LAM) * LAM);
+          N = NX * NY;
+          f = new Float32Array(9 * N);
+          g = new Float32Array(9 * N);
+          ux = new Float32Array(N);
+          uy = new Float32Array(N);
+          solid = new Uint8Array(N);
+
+          posts = [];
+          COLS = 0;
+          for (let i = 0; colX(i) < NX - 8; i++) {
+            COLS++;
+            for (let j = 0; j < NY / LAM; j++)
+              posts.push([colX(i), wrapY(j * LAM + i * DELTA)]);
+          }
+          for (const [cx, cy] of posts) {
+            for (let dy = -R - 1; dy <= R + 1; dy++) {
+              for (let dx = -R - 1; dx <= R + 1; dx++) {
+                const x = Math.round(cx) + dx,
+                  yy = Math.round(cy) + dy;
+                if (x < 0 || x >= NX) continue;
+                const ddx = x - cx,
+                  ddy = yy - cy;
+                if (ddx * ddx + ddy * ddy <= R * R)
+                  solid[wrapY(yy) * NX + x] = 1;
+              }
+            }
+          }
+          for (let i = 0; i < N; i++) feqAll(1, U0, 0, f, i, N);
+
+          flow.width = NX;
+          flow.height = NY;
+          img = fctx.createImageData(NX, NY);
+          dpr = Math.min(2, devicePixelRatio || 1);
+          parts.width = trails.width = Math.round(w * dpr);
+          parts.height = trails.height = Math.round(h * dpr);
+          sx = parts.width / NX;
+          sy = parts.height / NY;
+
+          particles = [];
+          userParticles = [];
+          const nSmall = Math.round(N / 110),
+            nBig = Math.round(N / 330);
+          for (let i = 0; i < nSmall + nBig; i++) {
+            const p = { big: i < nBig, a: i < nBig ? A_BIG : A_SMALL };
+            placeRandom(p, 0.5 + Math.random() * (NX - 2));
+            particles.push(p);
+          }
+        }
+
+        function step() {
+          for (let y = 0; y < NY; y++) {
+            const row = y * NX;
+            const yu = y + 1 === NY ? 0 : y + 1;
+            const yd = y === 0 ? NY - 1 : y - 1;
+            for (let x = 0; x < NX; x++) {
+              const i = row + x;
+              if (solid[i]) {
+                ux[i] = 0;
+                uy[i] = 0;
+                continue;
+              }
+              let rho = 0;
+              for (let k = 0; k < 9; k++) {
+                fl[k] = f[k * N + i];
+                rho += fl[k];
+              }
+              const vx = (fl[1] - fl[3] + fl[5] - fl[6] - fl[7] + fl[8]) / rho;
+              const vy = (fl[2] - fl[4] + fl[5] + fl[6] - fl[7] - fl[8]) / rho;
+              ux[i] = vx;
+              uy[i] = vy;
+              const u2 = 1.5 * (vx * vx + vy * vy);
+              for (let k = 0; k < 9; k++) {
+                const cu = 3 * (EX[k] * vx + EY[k] * vy);
+                const post =
+                  fl[k] +
+                  OMEGA * (W9[k] * rho * (1 + cu + 0.5 * cu * cu - u2) - fl[k]);
+                const tx = x + EX[k];
+                if (tx < 0 || tx >= NX) continue;
+                const ty = EY[k] === 1 ? yu : EY[k] === -1 ? yd : y;
+                const j = ty * NX + tx;
+                if (solid[j]) g[OPP[k] * N + i] = post;
+                else g[k * N + j] = post;
+              }
+            }
+          }
+          // inlet: equilibrium at U0; outlet: zero gradient
+          for (let y = 0; y < NY; y++) {
+            const row = y * NX;
+            feqAll(1, U0, 0, g, row, N);
+            for (let k = 0; k < 9; k++)
+              g[k * N + row + NX - 1] = g[k * N + row + NX - 2];
+          }
+          const t = f;
+          f = g;
+          g = t;
+        }
+
+        function healthy() {
+          const i = (NY >> 1) * NX + (NX >> 1);
+          let rho = 0;
+          for (let k = 0; k < 9; k++) rho += f[k * N + i];
+          return Number.isFinite(rho) && rho > 0.5 && rho < 1.6;
+        }
+
+        // ---------- pointer forcing ----------
+        function impulse(px, py, dvx, dvy, radius) {
+          const r2 = radius * radius;
+          for (let dy = -radius; dy <= radius; dy++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+              const d2 = dx * dx + dy * dy;
+              if (d2 > r2) continue;
+              const x = Math.round(px) + dx;
+              if (x < 1 || x >= NX - 1) continue;
+              const i = wrapY(Math.round(py) + dy) * NX + x;
+              if (solid[i]) continue;
+              let rho = 0,
+                mx = 0,
+                my = 0;
+              for (let k = 0; k < 9; k++) {
+                const v = f[k * N + i];
+                rho += v;
+                mx += EX[k] * v;
+                my += EY[k] * v;
+              }
+              const fall = 1 - d2 / r2;
+              let vx = mx / rho + dvx * fall,
+                vy = my / rho + dvy * fall;
+              const s = Math.hypot(vx, vy);
+              if (s > 0.18) {
+                vx *= 0.18 / s;
+                vy *= 0.18 / s;
+              }
+              feqAll(rho, vx, vy, f, i, N);
+            }
+          }
+        }
+
+        // ---------- DLD particle kinematics ----------
+        // Each gap carries NL = 1/ε flow lanes. A particle's lane is (gap j, lane k) at its next post column c.
+        // Bump mode (d > Dc): the particle cannot fit in the first lane, so it keeps its gap-relative
+        //   position and is displaced by Δ = ελ every column, travelling along the array tilt.
+        // Zigzag mode (d < Dc): the particle stays on its streamline; its lane index steps down by one
+        //   each column and, once per period, it passes around a post into the neighbouring gap.
+        //   Net lateral displacement over NL columns is zero.
+        function laneY(c, p) {
+          const phi = p.big ? p.phi : (p.k + 0.5) / NL;
+          return wrapY(p.j * LAM + c * DELTA + R + phi * GAP);
+        }
+        function nextLane(p) {
+          if (!p.big) {
+            p.k--;
+            if (p.k < 0) {
+              p.k = NL - 1;
+              p.j--;
+            }
+          }
+        }
+        function prevLane(p) {
+          if (!p.big) {
+            p.k++;
+            if (p.k > NL - 1) {
+              p.k = 0;
+              p.j++;
+            }
+          }
+        }
+
+        function yOf(p) {
+          if (p.x <= p.xs) return p.ys;
+          if (p.x >= p.xe) return p.ye;
+          let d = p.ye - p.ys;
+          d -= Math.round(d / NY) * NY;
+          let t = (p.x - p.xs) / (p.xe - p.xs);
+          t = t * t * (3 - 2 * t);
+          return wrapY(p.ys + d * t);
+        }
+
+        function randomLane(p) {
+          p.j = Math.floor((Math.random() * NY) / LAM);
+          if (p.big) p.phi = 0.33 + Math.random() * 0.34;
+          else p.k = Math.floor(Math.random() * NL);
+        }
+
+        function placeRandom(p, x) {
+          p.x = x;
+          randomLane(p);
+          const c = x < X0 ? 0 : Math.floor((x - X0) / LAM) + 1;
+          p.c = c;
+          if (c > COLS - 1) {
+            p.ys = p.ye = laneY(COLS - 1, p);
+            p.xs = p.xe = colX(COLS - 1) + R;
+          } else {
+            p.ye = laneY(c, p);
+            if (c === 0) {
+              p.ys = p.ye;
+              p.xs = p.xe = colX(0) - R;
+            } else {
+              const q = { big: p.big, j: p.j, k: p.k, phi: p.phi };
+              prevLane(q);
+              p.ys = laneY(c - 1, q);
+              p.xs = colX(c - 1) + R;
+              p.xe = colX(c) - R;
+            }
+          }
+          p.y = yOf(p);
+          p.px = p.x;
+          p.py = p.y;
+        }
+
+        function placeAt(p, x, y) {
+          p.x = x;
+          const c = x < X0 ? 0 : Math.floor((x - X0) / LAM) + 1;
+          p.c = c;
+          if (c > COLS - 1) {
+            p.j = 0;
+            p.k = 0;
+            p.phi = 0.5;
+            p.ys = p.ye = y;
+            p.xs = p.xe = x;
+          } else {
+            const rel = y - c * DELTA - R;
+            let j = Math.floor(rel / LAM);
+            let phi = (rel - j * LAM) / GAP; // 0..1 inside the gap, >1 inside a post
+            if (phi > 1) {
+              if (phi < 1.5) phi = 1;
+              else {
+                j += 1;
+                phi = 0;
+              }
+            }
+            p.j = j;
+            if (p.big) p.phi = Math.min(0.67, Math.max(0.33, phi));
+            else p.k = Math.min(NL - 1, Math.max(0, Math.floor(phi * NL)));
+            p.ys = y;
+            p.xs = x;
+            p.ye = laneY(c, p);
+            p.xe = Math.max(x + 0.5, colX(c) - R);
+          }
+          p.y = y;
+          p.px = p.x;
+          p.py = p.y;
+        }
+
+        function advance(p) {
+          while (p.c <= COLS - 1 && p.x >= colX(p.c)) {
+            p.ys = p.ye;
+            p.xs = colX(p.c) + R;
+            p.c++;
+            if (p.c <= COLS - 1) {
+              nextLane(p);
+              p.ye = laneY(p.c, p);
+              p.xe = colX(p.c) - R;
+            } else {
+              p.xe = p.xs;
+            }
+          }
+        }
+
+        function sampleUx(x, y) {
+          const x0 = Math.max(0, Math.min(NX - 2, Math.floor(x)));
+          const y0 = Math.floor(y),
+            y0w = wrapY(y0),
+            y1w = wrapY(y0 + 1);
+          const tx = Math.max(0, Math.min(1, x - x0)),
+            ty = y - y0;
+          const i00 = y0w * NX + x0,
+            i01 = y1w * NX + x0;
+          return (
+            (ux[i00] * (1 - tx) + ux[i00 + 1] * tx) * (1 - ty) +
+            (ux[i01] * (1 - tx) + ux[i01 + 1] * tx) * ty
+          );
+        }
+
+        function moveOne(p, steps) {
+          p.px = p.x;
+          p.py = p.y;
+          let vx = sampleUx(p.x, p.y);
+          if (!Number.isFinite(vx)) vx = U0;
+          vx = Math.min(0.2, Math.max(0.35 * U0, vx));
+          p.x += vx * steps;
+          advance(p);
+          p.y = yOf(p);
+          if (p.path) {
+            p.path.push(p.x, p.y);
+            if (p.path.length > 6000) p.path.splice(0, 2);
+          }
+        }
+
+        function moveParticles(steps) {
+          for (const p of particles) {
+            moveOne(p, steps);
+            if (p.x > NX - 1.5) placeRandom(p, 0.5 + Math.random() * 2);
+          }
+          for (const p of userParticles) {
+            if (p.done) continue;
+            moveOne(p, steps);
+            if (p.x > NX - 1.5) p.done = true;
+          }
+          userParticles = userParticles.filter((p) => !p.done || p.fade-- > 0);
+        }
+
+        function spawnUser(x, y, big) {
+          const p = {
+            big,
+            a: big ? A_BIG : A_SMALL,
+            user: true,
+            path: [],
+            fade: 240,
+          };
+          placeAt(p, x, y);
+          p.path.push(p.x, p.y);
+          userParticles.push(p);
+          if (userParticles.length > 14) userParticles.shift();
+          if (reduce) {
+            for (let s = 0; s < 20000 && p.x <= NX - 1.5; s++) moveOne(p, 3);
+            p.done = true;
+            p.fade = Infinity;
+            render();
+          }
+        }
+
+        // ---------- popup ----------
+        const pop = document.getElementById("pop");
+        const popPos = document.getElementById("pop-pos");
+        function openPop(clientX, clientY, lx, ly) {
+          pending = { x: lx, y: ly };
+          popPos.textContent = `Add particle · x ${lx.toFixed(0)}, y ${ly.toFixed(0)} lu`;
+          pop.hidden = false;
+          const w = pop.offsetWidth,
+            h = pop.offsetHeight;
+          let left = clientX + 14,
+            top = clientY + 14;
+          if (left + w > innerWidth - 12) left = clientX - w - 14;
+          if (top + h > innerHeight - 12) top = clientY - h - 14;
+          pop.style.left = Math.max(12, left) + "px";
+          pop.style.top = Math.max(12, top) + "px";
+          document.getElementById("opt-big").focus({ preventScroll: true });
+          if (reduce) render();
+        }
+        function closePop() {
+          if (pop.hidden) return;
+          pop.hidden = true;
+          pending = null;
+          if (reduce) render();
+        }
+        document.getElementById("pop-x").addEventListener("click", closePop);
+        for (const id of ["opt-big", "opt-small"]) {
+          document.getElementById(id).addEventListener("click", (e) => {
+            if (!pending) return;
+            const big = e.currentTarget.dataset.size === "big";
+            const { x, y } = pending;
+            closePop();
+            spawnUser(x, y, big);
+          });
+        }
+        addEventListener("keydown", (e) => {
+          if (e.key === "Escape") closePop();
+        });
+        document.addEventListener("pointerdown", (e) => {
+          if (!pop.hidden && !pop.contains(e.target) && e.target !== parts)
+            closePop();
+        });
+
+        // ---------- pointer ----------
+        let down = false,
+          moved = false,
+          lx = 0,
+          ly = 0,
+          startX = 0,
+          startY = 0;
+        const toLattice = (e) => [
+          (e.clientX / innerWidth) * NX - 0.5,
+          (e.clientY / innerHeight) * NY - 0.5,
+        ];
+        parts.addEventListener("pointerdown", (e) => {
+          down = true;
+          moved = false;
+          [lx, ly] = toLattice(e);
+          startX = e.clientX;
+          startY = e.clientY;
+          try {
+            parts.setPointerCapture(e.pointerId);
+          } catch (_) {}
+        });
+        parts.addEventListener("pointermove", (e) => {
+          if (!down) return;
+          const [x, y] = toLattice(e);
+          if (Math.hypot(e.clientX - startX, e.clientY - startY) > 5) {
+            if (!moved) closePop();
+            moved = true;
+          }
+          if (!moved) return;
+          let dvx = (x - lx) * 0.04,
+            dvy = (y - ly) * 0.04;
+          if (Math.abs(y - ly) > NY / 2) dvy = 0;
+          impulse(x, y, dvx, dvy, 6);
+          lx = x;
+          ly = y;
+        });
+        parts.addEventListener("pointerup", (e) => {
+          if (down && !moved) {
+            const [x, y] = toLattice(e);
+            openPop(
+              e.clientX,
+              e.clientY,
+              Math.max(0.5, Math.min(NX - 2, x)),
+              wrapY(y),
+            );
+          }
+          down = false;
+          if (reduce && moved) {
+            for (let s = 0; s < 120; s++) step();
+            render();
+          }
+        });
+        parts.addEventListener("pointercancel", () => {
+          down = false;
+        });
+
+        // ---------- rendering ----------
+        function drawFlow() {
+          const d = img.data,
+            bg = colors.bg,
+            A = colors.a,
+            B = colors.b;
+          for (let y = 0; y < NY; y++) {
+            const yu = wrapY(y + 1) * NX,
+              yd = wrapY(y - 1) * NX,
+              row = y * NX;
+            for (let x = 0; x < NX; x++) {
+              const i = row + x,
+                o = i * 4;
+              let r = bg[0],
+                gg = bg[1],
+                b = bg[2];
+              if (!solid[i]) {
+                const xl = x > 0 ? x - 1 : x,
+                  xr = x < NX - 1 ? x + 1 : x;
+                const curl =
+                  uy[row + xr] - uy[row + xl] - (ux[yu + x] - ux[yd + x]);
+                let t = curl * 7;
+                if (t > 1) t = 1;
+                else if (t < -1) t = -1;
+                const c = t > 0 ? B : A;
+                const m = Math.pow(Math.abs(t), 0.75) * 0.35;
+                r += (c[0] - r) * m;
+                gg += (c[1] - gg) * m;
+                b += (c[2] - b) * m;
+              }
+              d[o] = r;
+              d[o + 1] = gg;
+              d[o + 2] = b;
+              d[o + 3] = 255;
+            }
+          }
+          fctx.putImageData(img, 0, 0);
+        }
+
+        const PX = (x) => (x + 0.5) * sx,
+          PY = (y) => (y + 0.5) * sy;
+
+        function drawTrails() {
+          tctx.globalCompositeOperation = "destination-out";
+          tctx.fillStyle = "rgba(0,0,0,0.035)";
+          tctx.fillRect(0, 0, trails.width, trails.height);
+          tctx.globalCompositeOperation = "source-over";
+          tctx.lineCap = "round";
+          for (const big of [false, true]) {
+            tctx.strokeStyle = big
+              ? rgba(colors.b, 0.55)
+              : rgba(colors.a, 0.45);
+            tctx.lineWidth = (big ? 1.6 : 1.1) * dpr;
+            tctx.beginPath();
+            for (const p of particles) {
+              if (p.big !== big) continue;
+              if (Math.abs(p.y - p.py) > NY / 2 || p.x < p.px) continue;
+              tctx.moveTo(PX(p.px), PY(p.py));
+              tctx.lineTo(PX(p.x), PY(p.y));
+            }
+            tctx.stroke();
+          }
+        }
+
+        function drawParts() {
+          pctx.clearRect(0, 0, parts.width, parts.height);
+
+          pctx.fillStyle = colors.post;
+          for (const [cx, cy] of posts) {
+            for (const off of [0, -NY, NY]) {
+              const yy = cy + off;
+              if (yy < -R - 1 || yy > NY + R + 1) continue;
+              pctx.beginPath();
+              pctx.ellipse(PX(cx), PY(yy), R * sx, R * sy, 0, 0, Math.PI * 2);
+              pctx.fill();
+            }
+          }
+
+          pctx.fillStyle = colors.dyeA;
+          for (const p of particles) {
+            if (p.big) continue;
+            pctx.beginPath();
+            pctx.arc(PX(p.x), PY(p.y), 1.5 * dpr, 0, Math.PI * 2);
+            pctx.fill();
+          }
+          pctx.strokeStyle = colors.dyeB;
+          pctx.lineWidth = 1.6 * dpr;
+          for (const p of particles) {
+            if (!p.big) continue;
+            pctx.beginPath();
+            pctx.ellipse(
+              PX(p.x),
+              PY(p.y),
+              p.a * sx,
+              p.a * sy,
+              0,
+              0,
+              Math.PI * 2,
+            );
+            pctx.stroke();
+          }
+
+          // user particles: full path plus a highlighted marker
+          for (const p of userParticles) {
+            const alpha =
+              p.done && Number.isFinite(p.fade) ? Math.max(0, p.fade / 240) : 1;
+            const col = p.big ? colors.b : colors.a;
+            pctx.strokeStyle = rgba(col, 0.9 * alpha);
+            pctx.lineWidth = 2.2 * dpr;
+            pctx.lineJoin = "round";
+            pctx.beginPath();
+            const pts = p.path;
+            for (let i = 0; i < pts.length; i += 2) {
+              const x = PX(pts[i]),
+                y = PY(pts[i + 1]);
+              if (i === 0 || Math.abs(pts[i + 1] - pts[i - 1]) > NY / 2)
+                pctx.moveTo(x, y);
+              else pctx.lineTo(x, y);
+            }
+            pctx.stroke();
+            if (p.done) continue;
+            const x = PX(p.x),
+              y = PY(p.y);
+            pctx.fillStyle = rgba(col, 0.18);
+            pctx.beginPath();
+            pctx.arc(
+              x,
+              y,
+              (p.big ? p.a * sx : 3 * dpr) + 6 * dpr,
+              0,
+              Math.PI * 2,
+            );
+            pctx.fill();
+            if (p.big) {
+              pctx.lineWidth = 2.4 * dpr;
+              pctx.strokeStyle = rgba(col, 1);
+              pctx.beginPath();
+              pctx.ellipse(x, y, p.a * sx, p.a * sy, 0, 0, Math.PI * 2);
+              pctx.stroke();
+            } else {
+              pctx.fillStyle = rgba(col, 1);
+              pctx.beginPath();
+              pctx.arc(x, y, 3 * dpr, 0, Math.PI * 2);
+              pctx.fill();
+            }
+          }
+
+          // pending spawn point
+          if (pending) {
+            const x = PX(pending.x),
+              y = PY(pending.y),
+              r = 7 * dpr;
+            pctx.strokeStyle = colors.fg;
+            pctx.lineWidth = 1.4 * dpr;
+            pctx.beginPath();
+            pctx.arc(x, y, r, 0, Math.PI * 2);
+            pctx.moveTo(x - r - 5 * dpr, y);
+            pctx.lineTo(x - r + 3 * dpr, y);
+            pctx.moveTo(x + r - 3 * dpr, y);
+            pctx.lineTo(x + r + 5 * dpr, y);
+            pctx.moveTo(x, y - r - 5 * dpr);
+            pctx.lineTo(x, y - r + 3 * dpr);
+            pctx.moveTo(x, y + r - 3 * dpr);
+            pctx.lineTo(x, y + r + 5 * dpr);
+            pctx.stroke();
+          }
+        }
+
+        function render() {
+          drawFlow();
+          drawParts();
+        }
+
+        // ---------- run ----------
+        const STEPS = 3;
+        function start() {
+          readColors();
+          init();
+          tctx.clearRect(0, 0, trails.width, trails.height);
+          for (let s = 0; s < (reduce ? 900 : 260); s++) step();
+          if (reduce) render();
+        }
+        function frame() {
+          for (let s = 0; s < STEPS; s++) step();
+          if (!healthy()) {
+            init();
+            for (let s = 0; s < 120; s++) step();
+          }
+          moveParticles(STEPS);
+          drawFlow();
+          drawTrails();
+          drawParts();
+          requestAnimationFrame(frame);
+        }
+
+        start();
+        if (!reduce) {
+          // pre-roll the particles so the first frame already shows their trails
+          for (let s = 0; s < 40; s++) {
+            moveParticles(STEPS);
+            drawTrails();
+          }
+          requestAnimationFrame(frame);
+        } else {
+          render();
+        }
+
+        let rt;
+        addEventListener("resize", () => {
+          clearTimeout(rt);
+          rt = setTimeout(() => {
+            closePop();
+            start();
+            render();
+          }, 200);
+        });
+        const recolor = () => {
+          readColors();
+          render();
+        };
+        matchMedia("(prefers-color-scheme: dark)").addEventListener(
+          "change",
+          recolor,
+        );
+        new MutationObserver(recolor).observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ["data-theme"],
+        });
+      })();
+    </script>
+  </body>
+</html>
